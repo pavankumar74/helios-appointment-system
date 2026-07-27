@@ -56,13 +56,25 @@ spec:
             limits:
               cpu: "1"
               memory: "1Gi"
+          # startupProbe guards the (potentially slow) first-boot data-dir init.
+          # Until it passes, liveness/readiness are suppressed, so a slow init on a
+          # busy CI runner can't trigger a liveness-kill / CrashLoop. Allows up to
+          # 60 * 5s = 5 min for MySQL to accept connections.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             exec:
               command:
                 - sh
                 - -c
                 - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
@@ -72,7 +84,6 @@ spec:
                 - sh
                 - -c
                 - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
-            initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 6
