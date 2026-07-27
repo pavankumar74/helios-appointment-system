@@ -1,0 +1,98 @@
+# MySQL runs as a StatefulSet so it gets stable storage via a PersistentVolumeClaim.
+# A headless Service gives the pod a stable network identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: helios
+spec:
+  clusterIP: None          # headless service for the StatefulSet
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: helios
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/part-of: helios
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          # All probes use a TCP connection to 127.0.0.1:3306 (the same transport the
+          # app and the backend init-container use) rather than the unix socket. The
+          # socket-based check (`-h localhost`) proved flaky on CI runners. mysqladmin
+          # ping exits 0 as soon as the server accepts a TCP connection (even before
+          # auth), which is exactly the "is MySQL up" signal we want.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

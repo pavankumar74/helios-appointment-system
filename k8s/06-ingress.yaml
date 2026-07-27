@@ -1,0 +1,25 @@
+# The frontend's nginx already proxies /api and /actuator to the backend Service,
+# so the Ingress only needs to route external traffic to the frontend.
+# Requires an ingress controller (e.g. ingress-nginx) installed in the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: helios
+  namespace: helios
+  labels:
+    app.kubernetes.io/part-of: helios
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: helios.local          # add "127.0.0.1 helios.local" to /etc/hosts for local testing
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
