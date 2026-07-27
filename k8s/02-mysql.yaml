@@ -56,36 +56,37 @@ spec:
             limits:
               cpu: "1"
               memory: "1Gi"
-          # startupProbe guards the (potentially slow) first-boot data-dir init.
-          # Until it passes, liveness/readiness are suppressed, so a slow init on a
-          # busy CI runner can't trigger a liveness-kill / CrashLoop. Allows up to
-          # 60 * 5s = 5 min for MySQL to accept connections.
+          # All probes use a TCP connection to 127.0.0.1:3306 (the same transport the
+          # app and the backend init-container use) rather than the unix socket. The
+          # socket-based check (`-h localhost`) proved flaky on CI runners. mysqladmin
+          # ping exits 0 as soon as the server accepts a TCP connection (even before
+          # auth), which is exactly the "is MySQL up" signal we want.
           startupProbe:
             exec:
               command:
                 - sh
                 - -c
-                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
             periodSeconds: 5
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 60
           livenessProbe:
             exec:
               command:
                 - sh
                 - -c
-                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 6
           readinessProbe:
             exec:
               command:
                 - sh
                 - -c
-                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+                - "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$MYSQL_ROOT_PASSWORD\" --connect-timeout=5"
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 10
             failureThreshold: 6
   volumeClaimTemplates:
     - metadata:
