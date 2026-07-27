@@ -1,0 +1,21 @@
+# kind cluster for Helios with ingress-ready port mappings.
+# Create it with:  kind create cluster --name helios --config k8s/kind-cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    # Host ports 80/443 are used by the workstation environment, so map to 8000/8443.
+    # The ingress is then reachable at http://helios.local:8000
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8000
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP

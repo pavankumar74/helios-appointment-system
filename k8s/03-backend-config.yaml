@@ -1,0 +1,49 @@
+# Non-secret backend configuration (mirrors docker-compose environment).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: helios
+data:
+  DB_HOST: "mysql"
+  DB_PORT: "3306"
+  DB_NAME: "helios"
+  # The frontend is reached through the Ingress host; adjust to your real domain.
+  HELIOS_CORS_ORIGINS: "http://helios.local,http://localhost:8081"
+  SEED_ADMIN_ENABLED: "true"
+  SEED_ADMIN_EMAIL: "admin@hellodoctor.local"
+  SEED_SAMPLE_ENABLED: "true"
+  MAIL_ENABLED: "false"
+  MAIL_HOST: "localhost"
+  MAIL_PORT: "1025"
+  MAIL_SMTP_AUTH: "false"
+  MAIL_SMTP_STARTTLS: "false"
+  MAIL_FROM: "no-reply@hellodoctor.local"
+  SMS_PROVIDER: "log"
+  # Don't let the SMTP health check (no real mail server) drag the whole app health DOWN.
+  MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+---
+# Secret values pulled from the DB secret + app secrets.
+# Replace these with real values via kubectl/sealed-secrets in production.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secret
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: helios
+type: Opaque
+stringData:
+  # Generate a strong 256-bit base64 secret: openssl rand -base64 32
+  HELIOS_JWT_SECRET: "Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE="
+  SEED_ADMIN_PASSWORD: "Admin@12345"
+  # Twilio (only used when SMS_PROVIDER=twilio)
+  TWILIO_ACCOUNT_SID: ""
+  TWILIO_AUTH_TOKEN: ""
+  TWILIO_FROM_NUMBER: ""
+  MAIL_USERNAME: ""
+  MAIL_PASSWORD: ""

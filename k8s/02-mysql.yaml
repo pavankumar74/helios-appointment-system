@@ -1,0 +1,86 @@
+# MySQL runs as a StatefulSet so it gets stable storage via a PersistentVolumeClaim.
+# A headless Service gives the pod a stable network identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: helios
+spec:
+  clusterIP: None          # headless service for the StatefulSet
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: helios
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: helios
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/part-of: helios
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

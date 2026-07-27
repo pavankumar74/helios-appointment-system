@@ -55,3 +55,90 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  deploy:
+    name: Deploy to Kubernetes (kind) & validate
+    # Only runs after the backend + frontend jobs (build + unit tests) succeed.
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Build the application container images ---
+      - name: Build backend image
+        run: docker build -t helios-backend:latest ./backend
+
+      - name: Build frontend image
+        run: docker build -t helios-frontend:latest ./frontend
+
+      # --- Pre-pull the dependency images (avoids Docker Hub rate limits inside the cluster) ---
+      - name: Pull dependency images
+        run: |
+          docker pull mysql:8.4
+          docker pull busybox:1.36
+
+      # --- Provision a throwaway Kubernetes cluster ---
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: helios
+          node_image: kindest/node:v1.29.2
+
+      # --- Load every required image into the cluster's node ---
+      - name: Load images into kind
+        run: |
+          kind load docker-image helios-backend:latest --name helios
+          kind load docker-image helios-frontend:latest --name helios
+          kind load docker-image mysql:8.4 --name helios
+          kind load docker-image busybox:1.36 --name helios
+
+      # --- Deploy all manifests ---
+      - name: Deploy manifests (kustomize)
+        run: kubectl apply -k k8s/
+
+      # --- Wait for each workload to become Ready (fails the job if it never rolls out) ---
+      - name: Wait for MySQL
+        run: kubectl -n helios rollout status statefulset/mysql --timeout=300s
+
+      - name: Wait for backend
+        run: kubectl -n helios rollout status deployment/backend --timeout=300s
+
+      - name: Wait for frontend
+        run: kubectl -n helios rollout status deployment/frontend --timeout=180s
+
+      # --- Smoke test: prove the full path frontend(nginx) -> backend -> MySQL works ---
+      - name: Smoke test (homepage + admin login)
+        run: |
+          set -euo pipefail
+          kubectl -n helios port-forward svc/frontend 18081:80 >/tmp/pf.log 2>&1 &
+          PF=$!
+          for i in $(seq 1 15); do
+            curl -sf -o /dev/null http://localhost:18081/ && break || sleep 2
+          done
+          home=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18081/)
+          echo "Homepage HTTP: $home"
+          resp=$(curl -s -w '\n%{http_code}' -X POST http://localhost:18081/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"admin@hellodoctor.local","password":"Admin@12345"}')
+          echo "Login response: $resp"
+          kill "$PF" 2>/dev/null || true
+          code=$(echo "$resp" | tail -n1)
+          test "$home" = "200"
+          test "$code" = "200"
+          echo "✅ Deployment validated: homepage 200 and admin login 200 with JWT."
+
+      # --- If anything above failed, dump diagnostics into the job log ---
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "===== PODS ====="
+          kubectl -n helios get pods -o wide || true
+          echo "===== DESCRIBE ====="
+          kubectl -n helios describe pods || true
+          echo "===== BACKEND LOGS ====="
+          kubectl -n helios logs -l app.kubernetes.io/name=backend --tail=200 --all-containers || true
+          echo "===== MYSQL LOGS ====="
+          kubectl -n helios logs statefulset/mysql --tail=100 || true
+          echo "===== EVENTS ====="
+          kubectl -n helios get events --sort-by=.lastTimestamp || true
+

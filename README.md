@@ -137,6 +137,37 @@ SELECT role, COUNT(*) FROM users GROUP BY role;   -- ADMIN 1, DOCTOR 3, PATIENT 
 SELECT COUNT(*) FROM appointments;                -- 6
 ```
 
+## Deploy on Kubernetes
+
+Kubernetes manifests (Kustomize) live in [`k8s/`](k8s/) and deploy MySQL (StatefulSet), the
+backend, and the frontend into a `helios` namespace. See [`k8s/README.md`](k8s/README.md) for the
+full guide, operating commands, and troubleshooting.
+
+```bash
+# 1. Build the container images
+docker build -t helios-backend:latest ./backend
+docker build -t helios-frontend:latest ./frontend
+
+# 2. Create a local cluster and load the images (kind)
+kind create cluster --name helios --config k8s/kind-cluster.yaml
+kind load docker-image helios-backend:latest helios-frontend:latest --name helios
+#   minikube alternative:
+#   minikube image load helios-backend:latest helios-frontend:latest
+
+# 3. Deploy everything
+kubectl apply -k k8s/
+
+# 4. Watch it come up
+kubectl -n helios get pods -w
+#   expect: mysql-0 1/1, backend 2/2, frontend 2/2
+
+# 5. Access the app (port-forward)
+kubectl -n helios port-forward svc/frontend 8081:80   # → http://localhost:8081
+#   admin@hellodoctor.local / Admin@12345
+```
+
+Tear down with `kubectl delete -k k8s/` (add `kubectl -n helios delete pvc --all` to wipe the DB).
+
 ## API summary
 
 | Endpoint                       | Method | Auth            | Description                        |
