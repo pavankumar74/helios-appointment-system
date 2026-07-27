@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  push:        # run on every commit pushed to any branch
   pull_request:
-    branches: [main]
 
 jobs:
   backend:
